@@ -13,6 +13,8 @@
 // limitations under the License.
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.jvm.toolchain.JavaLanguageVersion
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter.BASIC_ISO_DATE
 import java.util.Properties
@@ -37,9 +39,14 @@ val ghidraVersion = ghidraProps.getProperty("application.version")!!
 val ghidraRelease = ghidraProps.getProperty("application.release.name")!!
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
     withSourcesJar()
+}
+
+tasks.withType<JavaCompile> {
+    options.release.set(17)
 }
 
 tasks.withType<KotlinCompile> {

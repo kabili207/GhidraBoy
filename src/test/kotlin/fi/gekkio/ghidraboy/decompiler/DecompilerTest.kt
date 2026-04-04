@@ -357,13 +357,12 @@ class DecompilerTest : IntegrationTest() {
             byte daa(byte value)
             {
                 char cVar1;
-                byte bVar2;
                 cVar1 = daaOperand(value + 1,0xfe < value,((value & 0xf) + 1 & 0x10) != 0,0);
-                bVar2 = value + 1 + cVar1;
-                if (bVar2 == 0) {
-                    return bVar2;
+                cVar1 = value + 1 + cVar1;
+                if (cVar1 == '\0') {
+                    return 0;
                 }
-                return bVar2 + 1;
+                return cVar1 + 1;
             }
             """.trimIndent(),
         )

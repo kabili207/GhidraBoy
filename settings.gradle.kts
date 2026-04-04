@@ -1,3 +1,7 @@
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
 // Copyright 2019-2020 Joonas Javanainen <joonas.javanainen@gmail.com>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");

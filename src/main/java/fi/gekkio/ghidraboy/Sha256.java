@@ -14,7 +14,7 @@
 package fi.gekkio.ghidraboy;
 
 import ghidra.app.util.bin.ByteProvider;
-import ghidra.util.HashUtilities;
+import generic.hash.HashUtilities;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;

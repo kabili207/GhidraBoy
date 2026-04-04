@@ -47,6 +47,11 @@ Supported Ghidra versions:
 As a prerequisite, you need to have a Ghidra installation somewhere (an actual
 installation, not a copy of Ghidra source code!).
 
+The build uses a Java 21 toolchain and emits Java 17-compatible bytecode.
+If you already have a full JDK 21 installed, Gradle will use it. If your
+machine only has a JRE, the Gradle wrapper can automatically provision a
+matching JDK for compilation.
+
 ```
 export GHIDRA_INSTALL_DIR=/path/to/ghidra
 ./gradlew
