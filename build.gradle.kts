@@ -131,6 +131,10 @@ val zip by tasks.registering(Zip::class) {
         into("data/")
         include("**/*.cspec", "**/*.ldefs", "**/*.pspec", "**/*.sinc", "**/*.slaspec", "**/sleighArgs.txt")
     }
+    from("ghidra_scripts") {
+        into("ghidra_scripts/")
+        include("**/*.py")
+    }
     from("README.markdown", "LICENSE", "Module.manifest")
 }
 
