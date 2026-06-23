@@ -46,6 +46,12 @@ public final class DataTypes {
     public static final Enum STAT;
     public static final Enum INTR_FLAGS;
     public static final Enum JOYPAD;
+    public static final Enum TAC;
+    public static final Enum SC;
+    public static final Enum NR52;
+    public static final Enum KEY1;
+    public static final Enum HDMA5;
+    public static final Enum PALETTE_SPEC;
     public static final Enum OAM_ATTRIBUTES;
     public static final Structure OAM_ENTRY;
 
@@ -180,6 +186,44 @@ public final class DataTypes {
         JOYPAD.add("SELECT_DIR", 0x10);
         JOYPAD.add("SELECT_ACTION", 0x20);
 
+        // TAC bits 0-1 select the clock; all four values are enumerated so the
+        // 2-bit field renders cleanly alongside the ENABLE flag in bit 2.
+        TAC = new EnumDataType(PATH, "tac", 1);
+        TAC.add("CLOCK_4096", 0x00);
+        TAC.add("CLOCK_262144", 0x01);
+        TAC.add("CLOCK_65536", 0x02);
+        TAC.add("CLOCK_16384", 0x03);
+        TAC.add("ENABLE", 0x04);
+
+        // SC bit 1 (FAST_CLOCK) is CGB-only.
+        SC = new EnumDataType(PATH, "sc", 1);
+        SC.add("CLOCK_INTERNAL", 0x01);
+        SC.add("FAST_CLOCK", 0x02);
+        SC.add("TRANSFER_START", 0x80);
+
+        // NR52: bit 7 is the master enable; bits 0-3 are read-only channel status.
+        NR52 = new EnumDataType(PATH, "nr52", 1);
+        NR52.add("CH1_ON", 0x01);
+        NR52.add("CH2_ON", 0x02);
+        NR52.add("CH3_ON", 0x04);
+        NR52.add("CH4_ON", 0x08);
+        NR52.add("SOUND_ENABLE", 0x80);
+
+        // KEY1: bit 0 prepares a switch (write); bit 7 reports current speed (read).
+        KEY1 = new EnumDataType(PATH, "key1", 1);
+        KEY1.add("PREPARE_SPEED_SWITCH", 0x01);
+        KEY1.add("CURRENT_SPEED_DOUBLE", 0x80);
+
+        // HDMA5: bit 7 picks the transfer mode; bits 0-6 carry (blocks - 1)
+        // and stay numeric.
+        HDMA5 = new EnumDataType(PATH, "hdma5", 1);
+        HDMA5.add("MODE_HBLANK", 0x80);
+
+        // Shared by BCPS (FF68) and OCPS (FF6A): bit 7 = auto-increment after
+        // a BCPD/OCPD write; bits 0-5 carry the palette byte index (stay numeric).
+        PALETTE_SPEC = new EnumDataType(PATH, "palette_spec", 1);
+        PALETTE_SPEC.add("AUTO_INCREMENT", 0x80);
+
         // CGB palette index lives in bits 0-2 (values 0-7); not enumerated.
         OAM_ATTRIBUTES = new EnumDataType(PATH, "oam_attributes", 1);
         OAM_ATTRIBUTES.add("CGB_VRAM_BANK", 0x08);
@@ -200,7 +244,9 @@ public final class DataTypes {
                 LOGO, TILE_2BPP, TILE_1BPP, CGB_PALETTE_COLOR,
                 CGB_FLAG, TITLE_BLOCK_OLD, TITLE_BLOCK_NEW, TITLE_BLOCK,
                 SGB_FLAG, CART_TYPE, ROM_SIZE, RAM_SIZE, REGION, HEADER,
-                LCDC, STAT, INTR_FLAGS, JOYPAD, OAM_ATTRIBUTES, OAM_ENTRY,
+                LCDC, STAT, INTR_FLAGS, JOYPAD,
+                TAC, SC, NR52, KEY1, HDMA5, PALETTE_SPEC,
+                OAM_ATTRIBUTES, OAM_ENTRY,
         };
         var c = m.createCategory(PATH);
         Arrays.stream(types).forEach(d -> c.addDataType(d, DataTypeConflictHandler.DEFAULT_HANDLER));

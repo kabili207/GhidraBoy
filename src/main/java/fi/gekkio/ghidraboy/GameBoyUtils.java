@@ -22,10 +22,16 @@ import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.util.exception.InvalidInputException;
 
+import static fi.gekkio.ghidraboy.DataTypes.HDMA5;
 import static fi.gekkio.ghidraboy.DataTypes.INTR_FLAGS;
 import static fi.gekkio.ghidraboy.DataTypes.JOYPAD;
+import static fi.gekkio.ghidraboy.DataTypes.KEY1;
 import static fi.gekkio.ghidraboy.DataTypes.LCDC;
+import static fi.gekkio.ghidraboy.DataTypes.NR52;
+import static fi.gekkio.ghidraboy.DataTypes.PALETTE_SPEC;
+import static fi.gekkio.ghidraboy.DataTypes.SC;
 import static fi.gekkio.ghidraboy.DataTypes.STAT;
+import static fi.gekkio.ghidraboy.DataTypes.TAC;
 import static fi.gekkio.ghidraboy.DataTypes.array;
 import static fi.gekkio.ghidraboy.DataTypes.u8;
 import static ghidra.app.util.MemoryBlockUtils.createUninitializedBlock;
@@ -68,11 +74,11 @@ public final class GameBoyUtils {
         var as = program.getAddressFactory().getDefaultAddressSpace();
         addHwData(program, "P1", as.getAddress(0xff00), JOYPAD);
         addHwData(program, "SB", as.getAddress(0xff01), u8);
-        addHwData(program, "SC", as.getAddress(0xff02), u8);
+        addHwData(program, "SC", as.getAddress(0xff02), SC);
         addHwData(program, "DIV", as.getAddress(0xff04), u8);
         addHwData(program, "TIMA", as.getAddress(0xff05), u8);
         addHwData(program, "TMA", as.getAddress(0xff06), u8);
-        addHwData(program, "TAC", as.getAddress(0xff07), u8);
+        addHwData(program, "TAC", as.getAddress(0xff07), TAC);
         addHwData(program, "IF", as.getAddress(0xff0f), INTR_FLAGS);
         addHwData(program, "NR10", as.getAddress(0xff10), u8);
         addHwData(program, "NR11", as.getAddress(0xff11), u8);
@@ -94,7 +100,7 @@ public final class GameBoyUtils {
         addHwData(program, "NR44", as.getAddress(0xff23), u8);
         addHwData(program, "NR50", as.getAddress(0xff24), u8);
         addHwData(program, "NR51", as.getAddress(0xff25), u8);
-        addHwData(program, "NR52", as.getAddress(0xff26), u8);
+        addHwData(program, "NR52", as.getAddress(0xff26), NR52);
         addHwData(program, "WAVE", as.getAddress(0xff30), array(u8, 16));
         addHwData(program, "LCDC", as.getAddress(0xff40), LCDC);
         addHwData(program, "STAT", as.getAddress(0xff41), STAT);
@@ -109,7 +115,7 @@ public final class GameBoyUtils {
         addHwData(program, "WY", as.getAddress(0xff4a), u8);
         addHwData(program, "WX", as.getAddress(0xff4b), u8);
         if (kind == GameBoyKind.CGB) {
-            addHwData(program, "KEY1", as.getAddress(0xff4d), u8);
+            addHwData(program, "KEY1", as.getAddress(0xff4d), KEY1);
             addHwData(program, "VBK", as.getAddress(0xff4f), u8);
         }
         addHwData(program, "BOOT", as.getAddress(0xff50), u8);
@@ -118,11 +124,11 @@ public final class GameBoyUtils {
             addHwData(program, "HDMA2", as.getAddress(0xff52), u8);
             addHwData(program, "HDMA3", as.getAddress(0xff53), u8);
             addHwData(program, "HDMA4", as.getAddress(0xff54), u8);
-            addHwData(program, "HDMA5", as.getAddress(0xff55), u8);
+            addHwData(program, "HDMA5", as.getAddress(0xff55), HDMA5);
             addHwData(program, "RP", as.getAddress(0xff56), u8);
-            addHwData(program, "BCPS", as.getAddress(0xff68), u8);
+            addHwData(program, "BCPS", as.getAddress(0xff68), PALETTE_SPEC);
             addHwData(program, "BCPD", as.getAddress(0xff69), u8);
-            addHwData(program, "OCPS", as.getAddress(0xff6a), u8);
+            addHwData(program, "OCPS", as.getAddress(0xff6a), PALETTE_SPEC);
             addHwData(program, "OCPD", as.getAddress(0xff6b), u8);
             addHwData(program, "SVBK", as.getAddress(0xff70), u8);
             addHwData(program, "PCM12", as.getAddress(0xff76), u8);
