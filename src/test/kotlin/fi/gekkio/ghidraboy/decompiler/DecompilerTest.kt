@@ -273,20 +273,20 @@ class DecompilerTest : IntegrationTest() {
             """
             byte read_joypad_state(void)
             {
-                byte bVar1;
-                byte bVar2;
-                P1 = 0x20;
-                bVar1 = P1;
-                bVar1 = P1;
-                P1 = 0x10;
-                bVar2 = P1;
-                bVar2 = P1;
-                bVar2 = P1;
-                bVar2 = P1;
-                bVar2 = P1;
-                bVar2 = P1;
-                P1 = 0x30;
-                return ~bVar2 & 0xf | ~bVar1 << 4;
+                joypad jVar1;
+                joypad jVar2;
+                P1 = SELECT_ACTION;
+                jVar1 = P1;
+                jVar1 = P1;
+                P1 = SELECT_DIR;
+                jVar2 = P1;
+                jVar2 = P1;
+                jVar2 = P1;
+                jVar2 = P1;
+                jVar2 = P1;
+                jVar2 = P1;
+                P1 = SELECT_ACTION|SELECT_DIR;
+                return ~jVar2 & 0xf | ~jVar1 << 4;
             }
             """.trimIndent(),
         )

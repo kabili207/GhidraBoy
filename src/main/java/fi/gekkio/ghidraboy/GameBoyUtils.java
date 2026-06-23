@@ -22,6 +22,10 @@ import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.util.exception.InvalidInputException;
 
+import static fi.gekkio.ghidraboy.DataTypes.INTR_FLAGS;
+import static fi.gekkio.ghidraboy.DataTypes.JOYPAD;
+import static fi.gekkio.ghidraboy.DataTypes.LCDC;
+import static fi.gekkio.ghidraboy.DataTypes.STAT;
 import static fi.gekkio.ghidraboy.DataTypes.array;
 import static fi.gekkio.ghidraboy.DataTypes.u8;
 import static ghidra.app.util.MemoryBlockUtils.createUninitializedBlock;
@@ -62,14 +66,14 @@ public final class GameBoyUtils {
 
     public static void populateHardwareBlocks(Program program, GameBoyKind kind) throws CodeUnitInsertionException, InvalidInputException {
         var as = program.getAddressFactory().getDefaultAddressSpace();
-        addHwData(program, "P1", as.getAddress(0xff00), u8);
+        addHwData(program, "P1", as.getAddress(0xff00), JOYPAD);
         addHwData(program, "SB", as.getAddress(0xff01), u8);
         addHwData(program, "SC", as.getAddress(0xff02), u8);
         addHwData(program, "DIV", as.getAddress(0xff04), u8);
         addHwData(program, "TIMA", as.getAddress(0xff05), u8);
         addHwData(program, "TMA", as.getAddress(0xff06), u8);
         addHwData(program, "TAC", as.getAddress(0xff07), u8);
-        addHwData(program, "IF", as.getAddress(0xff0f), u8);
+        addHwData(program, "IF", as.getAddress(0xff0f), INTR_FLAGS);
         addHwData(program, "NR10", as.getAddress(0xff10), u8);
         addHwData(program, "NR11", as.getAddress(0xff11), u8);
         addHwData(program, "NR12", as.getAddress(0xff12), u8);
@@ -92,8 +96,8 @@ public final class GameBoyUtils {
         addHwData(program, "NR51", as.getAddress(0xff25), u8);
         addHwData(program, "NR52", as.getAddress(0xff26), u8);
         addHwData(program, "WAVE", as.getAddress(0xff30), array(u8, 16));
-        addHwData(program, "LCDC", as.getAddress(0xff40), u8);
-        addHwData(program, "STAT", as.getAddress(0xff41), u8);
+        addHwData(program, "LCDC", as.getAddress(0xff40), LCDC);
+        addHwData(program, "STAT", as.getAddress(0xff41), STAT);
         addHwData(program, "SCY", as.getAddress(0xff42), u8);
         addHwData(program, "SCX", as.getAddress(0xff43), u8);
         addHwData(program, "LY", as.getAddress(0xff44), u8);
@@ -124,7 +128,7 @@ public final class GameBoyUtils {
             addHwData(program, "PCM12", as.getAddress(0xff76), u8);
             addHwData(program, "PCM34", as.getAddress(0xff77), u8);
         }
-        addHwData(program, "IE", as.getAddress(0xffff), u8);
+        addHwData(program, "IE", as.getAddress(0xffff), INTR_FLAGS);
     }
 
     private static void addHwData(Program program, String name, Address address, DataType dataType) throws CodeUnitInsertionException, InvalidInputException {
