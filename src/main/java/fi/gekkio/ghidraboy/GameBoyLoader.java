@@ -172,6 +172,7 @@ public class GameBoyLoader extends AbstractProgramLoader {
         } else {
             var banked = provider.length() > 0x8000;
             try {
+                program.getOptions(Program.PROGRAM_INFO).setString("GhidraBoy MBC", RomUtils.detectMbc(provider).name());
                 createInitializedBlock(program, false, banked ? "rom0" : "rom", as.getAddress(0x0000), rom, 0, banked ? 0x4000 : 0x8000, "Cartridge ROM (offset 0)", getName(), true, false, true, log);
                 if (banked) {
                     var romX = as.getAddress(0x4000);

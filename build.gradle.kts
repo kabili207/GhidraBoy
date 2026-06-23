@@ -111,10 +111,8 @@ val compileSleigh by tasks.registering(JavaExec::class) {
     args = listOf("-u", "-l", "-n", "-t", "-e", "-c", "-f", slaspecFile.absolutePath)
 }
 
-val zip by tasks.registering(Zip::class) {
-    archiveFileName.set("ghidra_${ghidraVersion}_${ghidraRelease}_${LocalDate.now().format(BASIC_ISO_DATE)}_${project.name}.zip")
-
-    into("${project.name}/")
+// Shared layout for both the distributable zip and the unpacked install dir.
+fun CopySpec.extensionLayout() {
     from(tasks.named("jar")) {
         into("lib/")
     }
@@ -138,8 +136,23 @@ val zip by tasks.registering(Zip::class) {
     from("README.markdown", "LICENSE", "Module.manifest")
 }
 
+val zip by tasks.registering(Zip::class) {
+    archiveFileName.set("ghidra_${ghidraVersion}_${ghidraRelease}_${LocalDate.now().format(BASIC_ISO_DATE)}_${project.name}.zip")
+
+    into("${project.name}/")
+    extensionLayout()
+}
+
+// Unpacked copy of the extension, laid out exactly like the zip's contents.
+// Symlink it from Ghidra's Extensions dir so a rebuild updates the install
+// in place (no manual re-install). Sync prunes files that are no longer built.
+val installExtension by tasks.registering(Sync::class) {
+    into(layout.buildDirectory.dir(project.name))
+    extensionLayout()
+}
+
 tasks.named("assemble") {
-    dependsOn("zip")
+    dependsOn("zip", "installExtension")
 }
 
 tasks.named<Test>("test") {
