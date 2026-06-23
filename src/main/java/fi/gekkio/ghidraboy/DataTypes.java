@@ -29,6 +29,8 @@ public final class DataTypes {
     public static final CharDataType ch = CharDataType.dataType;
 
     public static final TypeDef LOGO;
+    public static final TypeDef TILE_2BPP;
+    public static final TypeDef TILE_1BPP;
     public static final Enum CGB_FLAG;
     public static final Structure TITLE_BLOCK_OLD;
     public static final Structure TITLE_BLOCK_NEW;
@@ -42,6 +44,8 @@ public final class DataTypes {
 
     static {
         LOGO = new TypedefDataType(PATH, "logo", array(u8, 0x30));
+        TILE_2BPP = new TypedefDataType(PATH, "tile_2bpp", array(u8, 16));
+        TILE_1BPP = new TypedefDataType(PATH, "tile_1bpp", array(u8, 8));
 
         CGB_FLAG = new EnumDataType(PATH, "cgb_flag", 1);
         CGB_FLAG.add("NONE", 0x00);
@@ -134,7 +138,7 @@ public final class DataTypes {
     }
 
     public static void addAll(DataTypeManager m) {
-        var types = new DataType[]{LOGO, CGB_FLAG, TITLE_BLOCK_OLD, TITLE_BLOCK_NEW, TITLE_BLOCK, SGB_FLAG, CART_TYPE, ROM_SIZE, RAM_SIZE, REGION, HEADER};
+        var types = new DataType[]{LOGO, TILE_2BPP, TILE_1BPP, CGB_FLAG, TITLE_BLOCK_OLD, TITLE_BLOCK_NEW, TITLE_BLOCK, SGB_FLAG, CART_TYPE, ROM_SIZE, RAM_SIZE, REGION, HEADER};
         var c = m.createCategory(PATH);
         Arrays.stream(types).forEach(d -> c.addDataType(d, DataTypeConflictHandler.DEFAULT_HANDLER));
     }

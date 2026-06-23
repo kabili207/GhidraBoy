@@ -8,7 +8,10 @@
 #   .text:LEN              -> char[LEN] data
 #   .data:LEN[:rowsize]    -> byte[LEN] data (rowsize is ignored; mgbdis-only)
 #   .code:LEN              -> disassemble starting at the address
-#   .image:LEN[:args]      -> byte[LEN] data (palette/width are mgbdis-only)
+#   .image:LEN             -> tile_2bpp[LEN/16] data
+#   .image:LEN:1bpp[,...]  -> tile_1bpp[LEN/8] data
+# For .image blocks the mgbdis-only width and palette args (e.g. w128,pe4)
+# are not stored in Ghidra; they only affect mgbdis's PNG rendering.
 #
 # Lines that fail to parse are logged and skipped.
 #
@@ -17,8 +20,11 @@
 #@menupath Tools.mgbdis.Import sym file
 
 from ghidra.program.model.data import ArrayDataType, ByteDataType, CharDataType
-from ghidra.program.model.data import DataUtilities
+from ghidra.program.model.data import CategoryPath, DataUtilities
 from ghidra.program.model.symbol import SourceType
+
+
+GB_CATEGORY = CategoryPath(CategoryPath.ROOT, "Game Boy")
 
 
 def parse_line(raw):
@@ -87,20 +93,40 @@ def apply_label(program, addr, name):
     program.getSymbolTable().createLabel(addr, name, SourceType.USER_DEFINED)
 
 
-def apply_block(program, addr, btype, length, monitor):
+def apply_block(program, addr, btype, length, args, monitor):
     """Apply a block directive to the program."""
     if btype == "code":
         # Trigger disassembly across the run; Ghidra figures out instruction boundaries.
         disassemble(addr)
         return
 
-    if btype == "text":
-        elem = CharDataType.dataType
-    else:
-        # data and image -> raw bytes
-        elem = ByteDataType.dataType
+    dtm = program.getDataTypeManager()
 
-    dt = ArrayDataType(elem, length, elem.getLength())
+    if btype == "image":
+        # Use the GhidraBoy tile typedefs so the bytes are semantically marked
+        # as image data. mgbdis's "1bpp" arg picks the 1-bit variant.
+        is_1bpp = args is not None and "1bpp" in args
+        tile_name = "tile_1bpp" if is_1bpp else "tile_2bpp"
+        tile_size = 8 if is_1bpp else 16
+        tile_dt = dtm.getDataType(GB_CATEGORY, tile_name)
+        if tile_dt is not None and length % tile_size == 0:
+            count = length // tile_size
+            dt = ArrayDataType(tile_dt, count, tile_dt.getLength())
+        else:
+            if tile_dt is None:
+                printerr("  {} not found in data type manager; falling back to byte[]".format(tile_name))
+            else:
+                printerr("  image length {} is not a multiple of {}; falling back to byte[]".format(length, tile_size))
+            elem = ByteDataType.dataType
+            dt = ArrayDataType(elem, length, elem.getLength())
+    elif btype == "text":
+        elem = CharDataType.dataType
+        dt = ArrayDataType(elem, length, elem.getLength())
+    else:
+        # .data -> raw bytes
+        elem = ByteDataType.dataType
+        dt = ArrayDataType(elem, length, elem.getLength())
+
     DataUtilities.createData(
         program, addr, dt, length, False,
         DataUtilities.ClearDataMode.CLEAR_ALL_UNDEFINED_CONFLICT_DATA,
@@ -147,9 +173,9 @@ def run():
                     skipped += 1
                 continue
 
-            btype, length, _args = block_def
+            btype, length, args = block_def
             try:
-                apply_block(program, addr, btype, length, monitor)
+                apply_block(program, addr, btype, length, args, monitor)
                 blocks += 1
             except Exception as e:
                 printerr("Line {}: failed to apply {} block at {}: {}".format(line_no, btype, addr, e))

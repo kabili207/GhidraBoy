@@ -32,7 +32,11 @@ def block_bank(block):
 
 
 def classify_data(data):
-    """Map a Ghidra Data item to (block_type, length_bytes) or None."""
+    """Map a Ghidra Data item to (block_type, length_bytes, args) or None.
+
+    args is a string appended to the block directive (e.g. "1bpp" for
+    1-bit-per-pixel tile data), or None.
+    """
     if data is None or not data.isDefined():
         return None
     dt = data.getDataType()
@@ -41,28 +45,37 @@ def classify_data(data):
         return None
 
     name = dt.getName().lower()
+    # Tile typedefs at the top level: a single tile becomes a 1-tile image block.
+    if name == "tile_2bpp":
+        return ("image", length, None)
+    if name == "tile_1bpp":
+        return ("image", length, "1bpp")
     # Strings (any string-y type) -> .text
     if "string" in name or name in ("char", "wchar_t"):
-        return ("text", length)
+        return ("text", length, None)
 
     # Arrays: inspect element type
     if hasattr(dt, "getDataType") and hasattr(dt, "getNumElements"):
         elem = dt.getDataType()
         elem_name = elem.getName().lower()
+        if elem_name == "tile_2bpp":
+            return ("image", length, None)
+        if elem_name == "tile_1bpp":
+            return ("image", length, "1bpp")
         if elem_name in ("char", "wchar_t") or "string" in elem_name:
-            return ("text", length)
+            return ("text", length, None)
         if elem_name in ("byte", "undefined1", "undefined", "word", "dword", "ushort", "uint", "short", "int"):
-            return ("data", length)
+            return ("data", length, None)
         # Fall through: emit as data anyway
-        return ("data", length)
+        return ("data", length, None)
 
     # Single primitive byte/word at a labelled address: emit as 1- or 2-byte data
     if name in ("byte", "undefined1", "undefined"):
-        return ("data", length)
+        return ("data", length, None)
     if name in ("word", "ushort", "short"):
-        return ("data", length)
+        return ("data", length, None)
     if name in ("dword", "uint", "int"):
-        return ("data", length)
+        return ("data", length, None)
 
     return None
 
@@ -121,8 +134,11 @@ def format_entries(entries):
         loc = "{:02x}:{:04x}".format(bank, offset)
         lines.append("{} {}".format(loc, label))
         if block_info is not None:
-            btype, blen = block_info
-            lines.append("{} .{}:{:x}".format(loc, btype, blen))
+            btype, blen, args = block_info
+            if args:
+                lines.append("{} .{}:{:x}:{}".format(loc, btype, blen, args))
+            else:
+                lines.append("{} .{}:{:x}".format(loc, btype, blen))
     return "\n".join(lines) + "\n"
 
 
