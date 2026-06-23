@@ -132,6 +132,11 @@ public final class GameBoyUtils {
     }
 
     private static void addHwData(Program program, String name, Address address, DataType dataType) throws CodeUnitInsertionException, InvalidInputException {
+        // Clear any existing code units first so re-applying the type on an already-loaded
+        // program (e.g. via RefreshGameBoyDataTypes.py) replaces stale typing rather than
+        // failing on a same-size but different-type conflict.
+        int length = dataType.getLength();
+        program.getListing().clearCodeUnits(address, address.add(length - 1), false);
         createData(program, address, dataType, -1, false, DataUtilities.ClearDataMode.CLEAR_ALL_UNDEFINED_CONFLICT_DATA);
         program.getSymbolTable().createLabel(address, name, SourceType.IMPORTED).setPinned(true);
     }
