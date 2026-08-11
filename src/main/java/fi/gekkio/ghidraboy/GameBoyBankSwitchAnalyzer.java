@@ -23,6 +23,7 @@ import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.PcodeOp;
@@ -39,6 +40,9 @@ import ghidra.program.util.VarnodeContext;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Resolves bankswitched calls and jumps into the right ROM overlay.
  *
@@ -52,20 +56,27 @@ import ghidra.util.task.TaskMonitor;
  * <p>This analyzer runs constant propagation per function and, at each flow
  * into the 0x4000-0x7fff window, picks the destination bank from:
  * <ol>
+ *   <li>the bank of the instruction's own overlay, when the flow comes from
+ *       banked code, or</li>
  *   <li>the constant most recently written to the bank-select register on this
- *       path (the {@code ld a,#bank; ld ($2000),a; call $4xxx} idiom), or</li>
- *   <li>failing that, the bank of the instruction's own overlay.</li>
+ *       path, either inline ({@code ld a,#bank; ld ($2000),a; call $4xxx}) or by
+ *       calling a helper that writes the register from A. The helper form is what
+ *       real games use, since the write has to run from the fixed bank:
+ *       {@code ld a,BANK(target); call Bankswitch; call target}.</li>
  * </ol>
  * It then rewrites the flow reference to the overlay address and forces
  * disassembly (and, for calls, function creation) there. Newly revealed bank
  * code re-triggers analysis, so resolution converges without an explicit loop.
  *
  * <p>Known limits: bank state is tracked along the propagator's walk, not fully
- * per-path, so a bank set on one branch and consumed at a join can mis-resolve;
- * the intra-bank default is the safety net. Trampoline far-call helpers that
- * take the bank in a register or as inline bytes after the call are not handled
- * here. MBC5 banks above 255 (the 0x3000-0x3fff high bit) and MBC1's upper-bit
- * register at 0x4000-0x5fff are not modeled.
+ * per-path, so in a fixed-bank function a bank set on one branch and consumed at
+ * a join can mis-resolve. Flows from inside a bank are unaffected, since they
+ * always resolve to their own bank. Far-call helpers that jump to a target held
+ * in a register ({@code jp hl}) or read the bank and target from inline bytes
+ * after the call are not resolved, and neither are data-driven jump tables: use
+ * Ghidra's undefined-code search to find what those reach. MBC5 banks above 255
+ * (the 0x3000-0x3fff high bit) and MBC1's upper-bit register at 0x4000-0x5fff
+ * are not modeled.
  */
 public class GameBoyBankSwitchAnalyzer extends AbstractAnalyzer {
     private static final String NAME = "Game Boy bank switching";
@@ -79,6 +90,11 @@ public class GameBoyBankSwitchAnalyzer extends AbstractAnalyzer {
     // visible at SWITCHED_LOW..SWITCHED_HIGH. Same range for MBC1/2/3/5.
     private static final long BANK_SEL_LOW = 0x2000L;
     private static final long BANK_SEL_HIGH = 0x3fffL;
+
+    // Bounds on the helper scan. Big enough for a chained far-call helper (rst -> jp body ->
+    // call the jp-hl routine), small enough that an ordinary function isn't classified as one.
+    private static final int HELPER_SCAN_BUDGET = 24;
+    private static final int HELPER_MAX_DEPTH = 2;
 
     private static final long SWITCHED_LOW = 0x4000L;
     private static final long SWITCHED_HIGH = 0x7fffL;
@@ -107,11 +123,14 @@ public class GameBoyBankSwitchAnalyzer extends AbstractAnalyzer {
 
         var symEval = new SymbolicPropogator(program);
         var regA = program.getRegister("A");
+        var regHl = program.getRegister("HL");
+        // Rebuilt per run: functions created since the last pass may be helpers.
+        var helpers = new HashMap<Address, BankEvaluator.HelperInfo>();
         var funcs = program.getFunctionManager().getFunctions(set, true);
         while (funcs.hasNext()) {
             monitor.checkCancelled();
             Function fn = funcs.next();
-            var eval = new BankEvaluator(program, regA);
+            var eval = new BankEvaluator(program, regA, regHl, helpers);
             try {
                 symEval.flowConstants(fn.getEntryPoint(), fn.getBody(), eval, false, monitor);
             } catch (CancelledException e) {
@@ -131,39 +150,277 @@ public class GameBoyBankSwitchAnalyzer extends AbstractAnalyzer {
     private static final class BankEvaluator extends ContextEvaluatorAdapter {
         private final Program program;
         private final Register regA;
+        private final Register regHl;
         private final ReferenceManager refMgr;
         private final AutoAnalysisManager mgr;
+        private final Map<Address, HelperInfo> helpers;
 
         // Constant last written to the bank-select register on this path, or -1
         // if unknown / not a constant.
         private long pendingBank = -1;
 
-        BankEvaluator(Program program, Register regA) {
+        BankEvaluator(Program program, Register regA, Register regHl, Map<Address, HelperInfo> helpers) {
             this.program = program;
             this.regA = regA;
+            this.regHl = regHl;
+            this.helpers = helpers;
             this.refMgr = program.getReferenceManager();
             this.mgr = AutoAnalysisManager.getAnalysisManager(program);
         }
 
         @Override
+        public boolean evaluateContextBefore(VarnodeContext context, Instruction instr) {
+            // Read A and HL before the call, since the call itself clobbers them.
+            resolveHelperCall(context, instr);
+            return false;
+        }
+
+        @Override
         public boolean evaluateContext(VarnodeContext context, Instruction instr) {
             updateBank(context, instr);
+            resolveComputedJump(context, instr);
             resolveFlow(instr);
             return false; // keep following flow
         }
 
+        /**
+         * Games rarely write the bank register inline: the write has to run from the fixed
+         * bank, so it lives in a shared helper. Two shapes matter, and a helper can be both:
+         * one takes the bank in A and returns ({@code ld a,BANK / call Bankswitch / call x}),
+         * the other also takes the target in HL and jumps to it ({@code ld a,BANK / ld hl,x /
+         * rst FarCall}). Either way the constants live at the call site, so that is where they
+         * have to be read.
+         */
+        private void resolveHelperCall(VarnodeContext context, Instruction instr) {
+            if (!instr.getFlowType().isCall()) {
+                return;
+            }
+            for (Address entry : instr.getFlows()) {
+                if (entry.getAddressSpace().isOverlaySpace()) {
+                    continue;
+                }
+                HelperInfo helper = classifyHelper(entry);
+                if (!helper.selectsBank() && !helper.jumpsToHl()) {
+                    continue;
+                }
+                Long bank = helper.selectsBank() ? constantOfRegister(context, regA) : null;
+                if (helper.selectsBank()) {
+                    pendingBank = (bank != null) ? (bank & 0x1ff) : -1;
+                }
+                if (helper.jumpsToHl()) {
+                    Long target = constantOfRegister(context, regHl);
+                    if (target != null) {
+                        resolveFarCall(instr, target, bank);
+                    }
+                }
+                return;
+            }
+        }
+
+        /**
+         * What calling the routine at {@code entry} does to bank state and control flow.
+         *
+         * <p>The walk follows fall-through, unconditional jumps and direct calls, because real
+         * helpers are chained: pokecrystal's FarCall is {@code rst $08 -> jp 2d63 -> ... ->
+         * call 2d82}, and only that last routine is the {@code jp hl}. It is bounded by an
+         * instruction budget and a call depth so a large routine can't be mistaken for a
+         * helper. HL clobbering is tracked because a helper that rewrites HL before jumping is
+         * not jumping to the caller's value, so the caller's HL means nothing.
+         */
+        private HelperInfo classifyHelper(Address entry) {
+            HelperInfo cached = helpers.get(entry);
+            if (cached != null) {
+                return cached;
+            }
+            helpers.put(entry, HelperInfo.NONE); // breaks recursion through mutually-calling helpers
+            var scan = new HelperScan();
+            scan.walk(entry, 0);
+            var info = new HelperInfo(scan.selectsBank, scan.jumpsToHl);
+            helpers.put(entry, info);
+            return info;
+        }
+
+        private final class HelperScan {
+            private boolean selectsBank;
+            private boolean jumpsToHl;
+            private boolean hlClobbered;
+            private int budget = HELPER_SCAN_BUDGET;
+
+            private void walk(Address entry, int depth) {
+                Instruction instr = program.getListing().getInstructionAt(entry);
+                while (instr != null && budget > 0) {
+                    budget--;
+                    if (writesBankSelectFromA(instr)) {
+                        selectsBank = true;
+                    }
+                    FlowType ft = instr.getFlowType();
+                    if (ft.isJump() && ft.isComputed()) {
+                        jumpsToHl = !hlClobbered;
+                        return;
+                    }
+                    if (clobbersHl(instr)) {
+                        hlClobbered = true;
+                    }
+                    if (ft.isTerminal()) {
+                        return;
+                    }
+                    if (ft.isCall()) {
+                        if (depth < HELPER_MAX_DEPTH) {
+                            for (Address callee : instr.getFlows()) {
+                                if (!callee.getAddressSpace().isOverlaySpace()) {
+                                    walk(callee, depth + 1);
+                                }
+                            }
+                        }
+                        if (jumpsToHl) {
+                            return;
+                        }
+                    } else if (ft.isJump() && !ft.isConditional()) {
+                        Address[] flows = instr.getFlows();
+                        if (flows.length != 1) {
+                            return;
+                        }
+                        instr = program.getListing().getInstructionAt(flows[0]);
+                        continue;
+                    }
+                    instr = instr.getNext();
+                }
+            }
+        }
+
+        private boolean clobbersHl(Instruction instr) {
+            for (Object result : instr.getResultObjects()) {
+                if (result instanceof Register reg && (regHl.contains(reg) || reg.contains(regHl))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /** Constant a register holds at this point, or null if propagation doesn't know. */
+        private Long constantOfRegister(VarnodeContext context, Register reg) {
+            Varnode value = context.getRegisterVarnodeValue(reg);
+            return (value != null) ? context.getConstant(value, this) : null;
+        }
+
+        /** {@code jp hl} where propagation pinned HL down: the destination is knowable. */
+        private void resolveComputedJump(VarnodeContext context, Instruction instr) {
+            FlowType ft = instr.getFlowType();
+            if (!ft.isJump() || !ft.isComputed()) {
+                return;
+            }
+            Long target = constantOfRegister(context, regHl);
+            if (target != null) {
+                recordTarget(instr, target, null, RefType.COMPUTED_JUMP);
+            }
+        }
+
+        /**
+         * Records the far call the helper will perform. The helper does the bank switch itself
+         * from the fixed bank, so unlike a direct flow this can legitimately leave the caller's
+         * own bank, and {@code bank} (the helper's A argument) wins when it is known.
+         */
+        private void resolveFarCall(Instruction instr, long target, Long bank) {
+            recordTarget(instr, target, bank, RefType.UNCONDITIONAL_CALL);
+        }
+
+        private void recordTarget(Instruction instr, long target, Long bank, RefType type) {
+            Address to;
+            if (target >= SWITCHED_LOW && target <= SWITCHED_HIGH) {
+                long selected = bank != null ? bank : effectiveBank(instr);
+                if (selected < 1) {
+                    return;
+                }
+                AddressSpace overlay = program.getAddressFactory().getAddressSpace("rom" + selected);
+                if (overlay == null) {
+                    return;
+                }
+                to = overlay.getAddress(target);
+            } else if (target < SWITCHED_LOW) {
+                to = program.getAddressFactory().getDefaultAddressSpace().getAddress(target);
+            } else {
+                return; // a RAM target isn't code we can attribute to a bank
+            }
+
+            for (Reference r : refMgr.getReferencesFrom(instr.getAddress())) {
+                if (r.getToAddress().equals(to)) {
+                    return;
+                }
+            }
+            // Attached to the mnemonic, not the operand: for a helper call the real flow goes
+            // to the helper, and that reference has to stay primary.
+            refMgr.addMemoryReference(instr.getAddress(), to, type, SourceType.ANALYSIS, CodeUnit.MNEMONIC);
+            mgr.disassemble(to);
+            if (type.isCall()) {
+                mgr.createFunction(to, false);
+            }
+        }
+
+        /** Bank a direct flow from this instruction lands in, or -1 when unknown. */
+        private long effectiveBank(Instruction instr) {
+            long ownBank = bankOfSpace(instr.getAddress().getAddressSpace());
+            return ownBank >= 1 ? ownBank : pendingBank;
+        }
+
+        private record HelperInfo(boolean selectsBank, boolean jumpsToHl) {
+            static final HelperInfo NONE = new HelperInfo(false, false);
+        }
+
+        private boolean writesBankSelectFromA(Instruction instr) {
+            for (PcodeOp op : instr.getPcode()) {
+                if (op.getOpcode() != PcodeOp.COPY) {
+                    continue;
+                }
+                Varnode out = op.getOutput();
+                if (out == null || !out.getAddress().isMemoryAddress() || !isBankSelect(out.getOffset())) {
+                    continue;
+                }
+                Varnode in = op.getInput(0);
+                if (in != null && in.isRegister() && in.getAddress().equals(regA.getAddress())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private void updateBank(VarnodeContext context, Instruction instr) {
             for (PcodeOp op : instr.getPcode()) {
-                if (op.getOpcode() != PcodeOp.STORE) {
+                Varnode value;
+                if (op.getOpcode() == PcodeOp.STORE) {
+                    // ld (hl),a and friends, where the address is only known by propagation.
+                    Long dst = constantOf(context, op.getInput(1));
+                    if (dst == null || !isBankSelect(dst)) {
+                        continue;
+                    }
+                    value = op.getInput(2);
+                } else if (op.getOpcode() == PcodeOp.COPY) {
+                    // ld (0x2000),a — the usual idiom. Sleigh resolves the constant address at
+                    // compile time, so this is a copy into a ram varnode and never a STORE.
+                    Varnode out = op.getOutput();
+                    if (out == null || !out.getAddress().isMemoryAddress() || !isBankSelect(out.getOffset())) {
+                        continue;
+                    }
+                    value = op.getInput(0);
+                } else {
                     continue;
                 }
-                Long dst = context.getConstant(op.getInput(1), this);
-                if (dst == null || dst < BANK_SEL_LOW || dst > BANK_SEL_HIGH) {
-                    continue;
-                }
-                Long val = context.getConstant(op.getInput(2), this);
-                pendingBank = (val != null) ? (val & 0x1ff) : -1;
+                Long bank = constantOf(context, value);
+                pendingBank = (bank != null) ? (bank & 0x1ff) : -1;
             }
+        }
+
+        /**
+         * Propagated constant behind a varnode, or null if it isn't known. Registers have to
+         * be resolved through {@code getValue} first: {@code getConstant} alone returns null
+         * for a register varnode even when propagation knows exactly what it holds.
+         */
+        private Long constantOf(VarnodeContext context, Varnode vn) {
+            Varnode value = context.getValue(vn, this);
+            return (value != null) ? context.getConstant(value, this) : null;
+        }
+
+        private static boolean isBankSelect(long address) {
+            return address >= BANK_SEL_LOW && address <= BANK_SEL_HIGH;
         }
 
         private void resolveFlow(Instruction instr) {
@@ -178,7 +435,11 @@ public class GameBoyBankSwitchAnalyzer extends AbstractAnalyzer {
                 return;
             }
 
-            long bank = pendingBank >= 1 ? pendingBank : bankOfSpace(instr.getAddress().getAddressSpace());
+            // Code in a switched bank can't select its own bank, since the write swaps the
+            // code out from under the PC. So a direct flow from bank code stays in that bank,
+            // and only a fixed-bank trampoline's flow follows the pending bank select.
+            long ownBank = bankOfSpace(instr.getAddress().getAddressSpace());
+            long bank = ownBank >= 1 ? ownBank : pendingBank;
             if (bank < 1) {
                 return; // fixed-bank flow with no known bank => ambiguous, leave it
             }
