@@ -45,14 +45,18 @@ public final class GameBoyUtils {
         var source = kind == GameBoyKind.CGB ? "Game Boy Color hardware" : "Game Boy hardware";
         var as = program.getAddressFactory().getDefaultAddressSpace();
         if (kind == GameBoyKind.CGB) {
-            createUninitializedBlock(program, true, "vram0", as.getAddress(0x8000), 0x2000, "Video RAM (bank 0)", source, true, true, false, log);
+            // The bank mapped at boot is a normal block, not an overlay: absolute references
+            // (LD A,(0x8000)) resolve to the default space, and a symbol there needs a block
+            // behind it or it can't be given a type. Only the switchable banks are overlays.
+            createUninitializedBlock(program, false, "vram0", as.getAddress(0x8000), 0x2000, "Video RAM (bank 0)", source, true, true, false, log);
             createUninitializedBlock(program, true, "vram1", as.getAddress(0x8000), 0x2000, "Video RAM (bank 1)", source, true, true, false, log);
         } else {
             createUninitializedBlock(program, false, "vram", as.getAddress(0x8000), 0x2000, "Video RAM", source, true, true, false, log);
         }
         if (kind == GameBoyKind.CGB) {
             createUninitializedBlock(program, false, "wram0", as.getAddress(0xc000), 0x1000, "Work RAM (bank 0)", source, true, true, true, log);
-            for (int i = 1; i <= 7; i++) {
+            createUninitializedBlock(program, false, "wram1", as.getAddress(0xd000), 0x1000, "Work RAM (bank 1)", source, true, true, true, log);
+            for (int i = 2; i <= 7; i++) {
                 createUninitializedBlock(program, true, "wram" + i, as.getAddress(0xd000), 0x1000, "Work RAM (bank %d)".formatted(i), source, true, true, true, log);
             }
         } else {
