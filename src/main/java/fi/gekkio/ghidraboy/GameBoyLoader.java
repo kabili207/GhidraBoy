@@ -200,6 +200,15 @@ public class GameBoyLoader extends AbstractProgramLoader {
                 st.createLabel(as.getAddress(0x0050), "intr_timer", SourceType.IMPORTED);
                 st.createLabel(as.getAddress(0x0058), "intr_serial", SourceType.IMPORTED);
                 st.createLabel(as.getAddress(0x0060), "intr_joypad", SourceType.IMPORTED);
+                // Interrupt handlers are reached only by hardware, so no instruction references
+                // them and analysis would never disassemble them. Seed each one as an entry
+                // point, skipping the 00/ff filler that games leave in unused vectors.
+                for (int vector = 0x0040; vector <= 0x0060; vector += 8) {
+                    var opcode = provider.readByte(vector) & 0xff;
+                    if (opcode != 0x00 && opcode != 0xff) {
+                        st.addExternalEntryPoint(as.getAddress(vector));
+                    }
+                }
                 st.addExternalEntryPoint(as.getAddress(0x0100));
                 try {
                     var entry = program.getFunctionManager().createFunction("entry", as.getAddress(0x0100), new AddressSet(as.getAddress(0x0100), as.getAddress(0x103)), SourceType.IMPORTED);
